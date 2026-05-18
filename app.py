@@ -35,7 +35,7 @@ with open("shl_catalog.json", "r") as f:
     catalog = json.load(f)
 
 # ------------------------------------------------
-# EMBEDDING MODEL
+# LOAD EMBEDDING MODEL
 # ------------------------------------------------
 
 embedding_model = SentenceTransformer(
@@ -64,7 +64,7 @@ texts = [
 embeddings = embedding_model.encode(texts)
 
 # ------------------------------------------------
-# FAISS INDEX
+# CREATE FAISS INDEX
 # ------------------------------------------------
 
 dimension = embeddings.shape[1]
@@ -105,37 +105,6 @@ def is_off_topic(user_message):
     )
 
 # ------------------------------------------------
-# CLARIFICATION LOGIC
-# ------------------------------------------------
-
-def needs_clarification(user_message):
-
-    important_keywords = [
-
-        "developer",
-        "engineer",
-        "manager",
-        "leadership",
-        "sales",
-        "java",
-        "python",
-        "analytical",
-        "coding",
-        "personality"
-    ]
-
-    user_message = user_message.lower()
-
-    has_details = any(
-
-        word in user_message
-
-        for word in important_keywords
-    )
-
-    return not has_details
-
-# ------------------------------------------------
 # RETRIEVAL FUNCTION
 # ------------------------------------------------
 
@@ -159,32 +128,6 @@ def retrieve_assessments(query, top_k=10):
     return results
 
 # ------------------------------------------------
-# RESPONSE GENERATOR
-# ------------------------------------------------
-
-def generate_reply(retrieved_assessments):
-
-    reply = (
-        "Based on your requirements, "
-        "these SHL assessments are recommended:\n\n"
-    )
-
-    for assessment in retrieved_assessments[:5]:
-
-        reply += (
-
-            f"- {assessment['name']}\n"
-
-            f"  Type: {assessment['test_type']}\n"
-
-            f"  {assessment['description']}\n"
-
-            f"  URL: {assessment['url']}\n\n"
-        )
-
-    return reply
-
-# ------------------------------------------------
 # HEALTH ENDPOINT
 # ------------------------------------------------
 
@@ -204,22 +147,28 @@ def health():
 
 def chat(req: ChatRequest):
 
+    # --------------------------------------------
+    # BUILD CONVERSATION CONTEXT
+    # --------------------------------------------
+
+    conversation_text = ""
+
     latest_user_message = ""
 
+    for msg in req.messages:
+
+        role = msg["role"]
+
+        content = msg["content"]
+
+        conversation_text += f"{role}: {content}\n"
+
+        if role == "user":
+
+            latest_user_message = content
+
     # --------------------------------------------
-    # GET LATEST USER MESSAGE
-    # --------------------------------------------
-
-    for msg in reversed(req.messages):
-
-        if msg["role"] == "user":
-
-            latest_user_message = msg["content"]
-
-            break
-
-    # --------------------------------------------
-    # OFF TOPIC
+    # OFF TOPIC CHECK
     # --------------------------------------------
 
     if is_off_topic(latest_user_message):
@@ -227,7 +176,7 @@ def chat(req: ChatRequest):
         return {
 
             "reply":
-            "I can only help with SHL assessment recommendations.",
+            "I can only help with SHL assessment recommendations and hiring assessments.",
 
             "recommendations": [],
 
@@ -235,15 +184,48 @@ def chat(req: ChatRequest):
         }
 
     # --------------------------------------------
-    # ASK CLARIFICATION
+    # END CONVERSATION CHECK
     # --------------------------------------------
 
-    if needs_clarification(latest_user_message):
+    closing_words = [
+
+        "thanks",
+        "thank you",
+        "perfect",
+        "great",
+        "that works",
+        "sounds good"
+    ]
+
+    if any(
+
+        word in latest_user_message.lower()
+
+        for word in closing_words
+    ):
 
         return {
 
             "reply":
-            "Could you provide more details about the role, required skills, seniority level, or assessment needs?",
+            "Glad I could help with your SHL assessment recommendations.",
+
+            "recommendations": [],
+
+            "end_of_conversation": True
+        }
+
+    # --------------------------------------------
+    # SMART CLARIFICATION LOGIC
+    # --------------------------------------------
+
+    short_query = len(latest_user_message.split()) < 4
+
+    if short_query:
+
+        return {
+
+            "reply":
+            "Could you provide more details about the role, required skills, experience level, or hiring objective?",
 
             "recommendations": [],
 
@@ -255,16 +237,38 @@ def chat(req: ChatRequest):
     # --------------------------------------------
 
     retrieved = retrieve_assessments(
-        latest_user_message
+        conversation_text
     )
 
     # --------------------------------------------
-    # GENERATE RESPONSE
+    # GENERATE REPLY
     # --------------------------------------------
 
-    reply = generate_reply(
-        retrieved
+    intro = (
+        "Based on the conversation and hiring requirements, "
+        "these SHL assessments are recommended:\n\n"
     )
+
+    recommendation_text = ""
+
+    for assessment in retrieved[:5]:
+
+        recommendation_text += (
+
+            f"- {assessment['name']}\n"
+
+            f"  Type: {assessment['test_type']}\n"
+
+            f"  {assessment['description']}\n"
+
+            f"  URL: {assessment['url']}\n\n"
+        )
+
+    reply = intro + recommendation_text
+
+    # --------------------------------------------
+    # STRUCTURED RECOMMENDATIONS
+    # --------------------------------------------
 
     recommendations = [
 
