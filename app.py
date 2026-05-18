@@ -1,13 +1,15 @@
-import os
-import google.generativeai as genaifrom fastapi import FastAPI
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from sentence_transformers import SentenceTransformer
 
+import google.generativeai as genai
+
 import faiss
 import numpy as np
 import json
+import os
 
 # ------------------------------------------------
 # FASTAPI APP
@@ -25,6 +27,18 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# ------------------------------------------------
+# GEMINI CONFIGURATION
+# ------------------------------------------------
+
+genai.configure(
+    api_key=os.getenv("GEMINI_API_KEY")
+)
+
+gemini_model = genai.GenerativeModel(
+    "gemini-1.5-flash"
 )
 
 # ------------------------------------------------
@@ -216,7 +230,7 @@ def chat(req: ChatRequest):
         }
 
     # --------------------------------------------
-    # SMART CLARIFICATION LOGIC
+    # SMART CLARIFICATION
     # --------------------------------------------
 
     short_query = len(latest_user_message.split()) < 4
@@ -234,38 +248,73 @@ def chat(req: ChatRequest):
         }
 
     # --------------------------------------------
-    # RETRIEVE ASSESSMENTS
+    # CONTEXT-AWARE QUERY
     # --------------------------------------------
 
-    retrieved = retrieve_assessments(
+    weighted_query = (
+        latest_user_message + " " +
+        latest_user_message + " " +
         conversation_text
     )
 
     # --------------------------------------------
-    # GENERATE REPLY
+    # RETRIEVE ASSESSMENTS
     # --------------------------------------------
 
-    intro = (
-        "Based on the conversation and hiring requirements, "
-        "these SHL assessments are recommended:\n\n"
+    retrieved = retrieve_assessments(
+        weighted_query
     )
 
-    recommendation_text = ""
+    # --------------------------------------------
+    # FORMAT RETRIEVED RESULTS
+    # --------------------------------------------
 
-    for assessment in retrieved[:5]:
+    retrieved_text = ""
 
-        recommendation_text += (
+    for item in retrieved[:5]:
 
-            f"- {assessment['name']}\n"
+        retrieved_text += (
 
-            f"  Type: {assessment['test_type']}\n"
+            f"Assessment: {item['name']}\n"
 
-            f"  {assessment['description']}\n"
+            f"Type: {item['test_type']}\n"
 
-            f"  URL: {assessment['url']}\n\n"
+            f"Description: {item['description']}\n"
+
+            f"URL: {item['url']}\n\n"
         )
 
-    reply = intro + recommendation_text
+    # --------------------------------------------
+    # GEMINI PROMPT
+    # --------------------------------------------
+
+    prompt = f"""
+You are an SHL assessment recommendation assistant.
+
+Conversation:
+{conversation_text}
+
+Relevant SHL assessments:
+{retrieved_text}
+
+Instructions:
+- Understand the hiring context carefully.
+- Respond conversationally and professionally.
+- Recommend the most relevant assessments.
+- Explain WHY each assessment is useful.
+- Ask follow-up questions if information is incomplete.
+- Keep the response concise but informative.
+"""
+
+    # --------------------------------------------
+    # GEMINI RESPONSE
+    # --------------------------------------------
+
+    gemini_response = gemini_model.generate_content(
+        prompt
+    )
+
+    reply = gemini_response.text
 
     # --------------------------------------------
     # STRUCTURED RECOMMENDATIONS
@@ -296,3 +345,4 @@ def chat(req: ChatRequest):
 
         "end_of_conversation": False
     }
+    
