@@ -9,8 +9,7 @@ app = FastAPI()
 # Gemini API Key
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-model = genai.GenerativeModel("gemini-pro")
-
+model = genai.GenerativeModel("models/gemini-1.5-flash")
 
 class QueryRequest(BaseModel):
     query: str
