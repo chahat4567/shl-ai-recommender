@@ -1,8 +1,4 @@
 fastapi
 uvicorn
-sentence-transformers
-faiss-cpu
-numpy
-pandas
-scikit-learn
+pydantic
 google-generativeai
