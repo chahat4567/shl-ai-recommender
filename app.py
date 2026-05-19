@@ -3,22 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import google.generativeai as genai
 import os
+import json
 
-# -----------------------------
-# GEMINI API CONFIG
-# -----------------------------
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-
-model = genai.GenerativeModel("models/gemini-1.5-flash")
-
-# -----------------------------
+# ----------------------------------------
 # FASTAPI APP
-# -----------------------------
+# ----------------------------------------
+
 app = FastAPI()
 
-# -----------------------------
-# CORS FIX
-# -----------------------------
+# ----------------------------------------
+# ENABLE CORS
+# ----------------------------------------
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,22 +23,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -----------------------------
+# ----------------------------------------
+# GEMINI CONFIG
+# ----------------------------------------
+
+genai.configure(
+    api_key=os.getenv("GEMINI_API_KEY")
+)
+
+model = genai.GenerativeModel(
+    "models/gemini-1.5-flash"
+)
+
+# ----------------------------------------
 # REQUEST MODEL
-# -----------------------------
+# ----------------------------------------
+
 class ChatRequest(BaseModel):
     query: str
 
-# -----------------------------
+# ----------------------------------------
 # HOME ROUTE
-# -----------------------------
+# ----------------------------------------
+
 @app.get("/")
 def home():
-    return {"status": "ok"}
 
-# -----------------------------
+    return {
+        "status": "ok"
+    }
+
+# ----------------------------------------
+# HEALTH ROUTE
+# ----------------------------------------
+
+@app.get("/health")
+def health():
+
+    return {
+        "status": "ok"
+    }
+
+# ----------------------------------------
 # CHAT ROUTE
-# -----------------------------
+# ----------------------------------------
+
 @app.post("/chat")
 def chat(req: ChatRequest):
 
@@ -52,7 +77,9 @@ You are an SHL assessment recommendation assistant.
 User Query:
 {req.query}
 
-Give response in JSON format only:
+Recommend suitable SHL assessments.
+
+Return ONLY valid JSON in this format:
 
 {{
   "reply": "short explanation",
@@ -66,11 +93,48 @@ Give response in JSON format only:
   "end_of_conversation": false
 }}
 
-Recommend suitable SHL assessments based on the query.
+Rules:
+- Recommend relevant SHL assessments.
+- Keep response professional.
+- Mention technical, leadership, aptitude or personality tests if relevant.
+- Return only JSON.
 """
 
-    response = model.generate_content(prompt)
+    try:
 
-    return {
-        "reply": response.text
-    }
+        response = model.generate_content(prompt)
+
+        text_response = response.text.strip()
+
+        # ----------------------------------------
+        # REMOVE MARKDOWN JSON BLOCKS IF PRESENT
+        # ----------------------------------------
+
+        text_response = text_response.replace(
+            "```json",
+            ""
+        )
+
+        text_response = text_response.replace(
+            "```",
+            ""
+        )
+
+        text_response = text_response.strip()
+
+        # ----------------------------------------
+        # CONVERT TO JSON
+        # ----------------------------------------
+
+        parsed_json = json.loads(text_response)
+
+        return parsed_json
+
+    except Exception as e:
+
+        return {
+            "reply": "Error generating recommendations",
+            "error": str(e),
+            "recommendations": [],
+            "end_of_conversation": False
+                }
